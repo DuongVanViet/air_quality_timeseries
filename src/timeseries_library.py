@@ -6,9 +6,12 @@ import json
 import warnings
 import numpy as np
 import pandas as pd
-
-from statsmodels.tsa.stattools import adfuller, kpss
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+from statsmodels.graphics.tsaplots import acf
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.stattools import adfuller, kpss
 
 # Reuse loading/cleaning helpers
 from .classification_library import (
@@ -289,3 +292,80 @@ def forecast_workflow(
     out["result"].save(paths.data_processed / f"{artifacts_prefix}_model.pkl")
 
     return {"summary": summary, "pred_df": pred_df, "grid": gs}
+
+
+class SARIMAModel:
+    def __init__(self, order=(1,1,1), seasonal_order=(1,0,1,24)):
+        self.order = order
+        self.seasonal_order = seasonal_order
+        self.model = None
+        self.results = None
+
+    def fit(self, train_series):
+        self.model = SARIMAX(
+            train_series,
+            order=self.order,
+            seasonal_order=self.seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        self.results = self.model.fit(disp=False)
+        return self.results
+
+    def forecast(self, steps):
+        return self.results.forecast(steps=steps)
+
+    def evaluate(self, y_true, y_pred):
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = mean_squared_error(y_true, y_pred, squared=False)
+        return {"MAE": mae, "RMSE": rmse}
+
+    def residual_diagnostics(self):
+        residuals = self.results.resid
+        acf_vals = acf(residuals.dropna(), nlags=40)
+
+        plt.figure(figsize=(10,4))
+        plt.stem(acf_vals)
+        plt.title("ACF of Residuals (SARIMA)")
+        plt.xlabel("Lag")
+        plt.ylabel("ACF")
+        plt.show()
+
+        return residuals
+    
+class SARIMAXModel:
+    def __init__(self, order=(1,1,1), seasonal_order=(1,0,1,24)):
+        self.order = order
+        self.seasonal_order = seasonal_order
+        self.model = None
+        self.results = None
+
+    def fit(self, y_train, exog_train):
+        self.model = SARIMAX(
+            y_train,
+            exog=exog_train,
+            order=self.order,
+            seasonal_order=self.seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        self.results = self.model.fit(disp=False)
+        return self.results
+
+    def forecast(self, steps, exog_future):
+        return self.results.forecast(steps=steps, exog=exog_future)
+
+    def evaluate(self, y_true, y_pred):
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = mean_squared_error(y_true, y_pred, squared=False)
+        return {"MAE": mae, "RMSE": rmse}
+
+    def residual_diagnostics(self):
+        residuals = self.results.resid
+
+        plt.figure(figsize=(10,4))
+        plt.plot(residuals)
+        plt.title("Residuals over time (SARIMAX)")
+        plt.show()
+
+        return residuals
